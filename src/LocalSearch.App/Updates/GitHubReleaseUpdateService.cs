@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -90,9 +91,9 @@ public sealed class GitHubReleaseUpdateService
         {
             return UpdateCheckResult.Failed(CurrentVersion, "업데이트 확인 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
-            return UpdateCheckResult.Failed(CurrentVersion, "업데이트 서버에 연결할 수 없습니다. 네트워크 상태나 GitHub 릴리즈 상태를 확인해 주세요.");
+            return UpdateCheckResult.Failed(CurrentVersion, CreateReleaseApiErrorMessage(ex, owner, repository));
         }
         catch (JsonException)
         {
@@ -161,7 +162,7 @@ public sealed class GitHubReleaseUpdateService
         }
         catch (HttpRequestException ex)
         {
-            throw new InvalidOperationException("업데이트 설치 파일을 내려받을 수 없습니다. 네트워크 상태나 GitHub 릴리즈 자산을 확인해 주세요.", ex);
+            throw new InvalidOperationException(CreateDownloadErrorMessage(ex, update.AssetName), ex);
         }
 
         try
@@ -181,7 +182,7 @@ public sealed class GitHubReleaseUpdateService
         catch (HttpRequestException ex)
         {
             File.Delete(tempPath);
-            throw new InvalidOperationException("업데이트 해시 파일을 내려받을 수 없습니다. GitHub 릴리즈 자산을 확인해 주세요.", ex);
+            throw new InvalidOperationException(CreateDownloadErrorMessage(ex, update.Sha256AssetName), ex);
         }
 
         File.Move(tempPath, targetPath, overwrite: true);
@@ -198,6 +199,39 @@ public sealed class GitHubReleaseUpdateService
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("LocalSearchExplorer", "1.0"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
+    }
+
+    private static string CreateReleaseApiErrorMessage(HttpRequestException exception, string owner, string repository)
+    {
+        var repoName = $"{owner}/{repository}";
+        return exception.StatusCode switch
+        {
+            HttpStatusCode.NotFound =>
+                $"GitHub 최신 릴리즈를 찾을 수 없습니다.\n\n저장소가 private이면 설치된 앱은 인증 없이 릴리즈 API를 읽을 수 없습니다. 자동 업데이트를 사용하려면 {repoName} 저장소를 public으로 전환하거나, 별도 인증 업데이트 채널을 구성해야 합니다.",
+            HttpStatusCode.Forbidden =>
+                "GitHub가 업데이트 확인 요청을 거부했습니다. 잠시 후 다시 시도하거나 GitHub API 제한 상태를 확인해 주세요.",
+            HttpStatusCode.Unauthorized =>
+                "GitHub 업데이트 확인 권한이 없습니다. 이 앱의 자동 업데이트는 public 릴리즈를 기준으로 동작합니다.",
+            null =>
+                "업데이트 서버에 연결할 수 없습니다. 네트워크 연결, 방화벽, 프록시 설정을 확인해 주세요.",
+            _ =>
+                $"GitHub 업데이트 확인에 실패했습니다. HTTP {(int)exception.StatusCode.Value} {exception.StatusCode.Value} 응답을 받았습니다."
+        };
+    }
+
+    private static string CreateDownloadErrorMessage(HttpRequestException exception, string assetName)
+    {
+        return exception.StatusCode switch
+        {
+            HttpStatusCode.NotFound =>
+                $"업데이트 파일을 찾을 수 없습니다: {assetName}\n\n저장소나 릴리즈가 private이면 설치된 앱은 인증 없이 asset을 내려받을 수 없습니다.",
+            HttpStatusCode.Forbidden =>
+                $"GitHub가 업데이트 파일 다운로드를 거부했습니다: {assetName}",
+            null =>
+                $"업데이트 파일을 내려받을 수 없습니다: {assetName}\n네트워크 연결, 방화벽, 프록시 설정을 확인해 주세요.",
+            _ =>
+                $"업데이트 파일 다운로드에 실패했습니다: {assetName}\nHTTP {(int)exception.StatusCode.Value} {exception.StatusCode.Value} 응답을 받았습니다."
+        };
     }
 
     private (string Name, string DownloadUrl)? SelectInstallerAsset(JsonElement release, string latestVersion)
