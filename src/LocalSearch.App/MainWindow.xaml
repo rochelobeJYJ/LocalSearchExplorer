@@ -318,7 +318,7 @@
                         <DataGridTextColumn Header="크기" Binding="{Binding SizeDisplay}" Width="105" SortMemberPath="Size" />
                         <DataGridTextColumn Header="수정일" Binding="{Binding ModifiedDisplay}" Width="155" SortMemberPath="ModifiedAt" />
                         <DataGridTextColumn Header="매칭 위치" Binding="{Binding MatchDisplay}" Width="110" SortMemberPath="MatchDisplay" />
-                        <DataGridTextColumn Header="전체 경로" Binding="{Binding FullPath}" Width="*" MinWidth="520" SortMemberPath="FullPath" />
+                        <DataGridTextColumn Header="전체 경로" Binding="{Binding FullPath}" Width="680" MinWidth="260" CanUserResize="True" SortMemberPath="FullPath" />
                     </DataGrid.Columns>
                 </DataGrid>
             </DockPanel>
