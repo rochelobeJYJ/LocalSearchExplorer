@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Local File Search Explorer icon">
+  <defs>
+    <linearGradient id="folder" x1="48" y1="52" x2="196" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="118" y1="96" x2="196" y2="186" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#DBEAFE" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 72c0-11.05 8.95-20 20-20h51.8c6.4 0 12.4 3.07 16.15 8.25L131.5 76H204c11.05 0 20 8.95 20 20v86c0 11.05-8.95 20-20 20H52c-11.05 0-20-8.95-20-20V72Z" fill="#0F172A" opacity="0.16"/>
+  <path d="M32 68c0-11.05 8.95-20 20-20h49.8c6.73 0 13.02 3.38 16.74 8.99L128 71.25c2.23 3.35 5.98 5.36 10 5.36h66c11.05 0 20 8.95 20 20V178c0 11.05-8.95 20-20 20H52c-11.05 0-20-8.95-20-20V68Z" fill="url(#folder)"/>
+  <path d="M40 100c0-8.84 7.16-16 16-16h144c8.84 0 16 7.16 16 16v75c0 8.84-7.16 16-16 16H56c-8.84 0-16-7.16-16-16v-75Z" fill="#EFF6FF" opacity="0.28"/>
+  <circle cx="150" cy="139" r="43" fill="url(#lens)" stroke="#0F172A" stroke-width="12"/>
+  <path d="M180.5 169.5 214 203" fill="none" stroke="#0F172A" stroke-width="17" stroke-linecap="round"/>
+  <path d="M180.5 169.5 214 203" fill="none" stroke="#2563EB" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="132" cy="133" r="6" fill="#2563EB"/>
+  <circle cx="150" cy="133" r="6" fill="#2563EB"/>
+  <circle cx="168" cy="133" r="6" fill="#2563EB"/>
+  <circle cx="141" cy="153" r="5" fill="#94A3B8"/>
+  <circle cx="159" cy="153" r="5" fill="#94A3B8"/>
+</svg>

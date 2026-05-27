@@ -1,0 +1,6 @@
+#define MyAppVersion "0.4.0"
+#define MyReleaseTag "v0.4.0"
+#define MyAppId "localsearchexplorer"
+#define MyGithubRepo "rochelobeJYJ/LocalSearchExplorer"
+#define MyInstallerBaseName "LocalSearchExplorer-Setup"
+#define MyInstallerOutputBaseName "LocalSearchExplorer-Setup-0.4.0"

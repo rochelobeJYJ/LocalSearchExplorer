@@ -1,0 +1,7 @@
+{
+  "appId": "localsearchexplorer",
+  "version": "0.4.0",
+  "releaseTag": "v0.4.0",
+  "githubRepo": "rochelobeJYJ/LocalSearchExplorer",
+  "installerBaseName": "LocalSearchExplorer-Setup"
+}
