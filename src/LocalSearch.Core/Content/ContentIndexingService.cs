@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LocalSearch.Core.Data;
 using LocalSearch.Core.Models;
 using LocalSearch.Core.Text;
@@ -7,6 +8,8 @@ namespace LocalSearch.Core.Content;
 public sealed class ContentIndexingService
 {
     private const long DefaultMaxFileSize = 50L * 1024 * 1024;
+    private const int ProgressIntervalMilliseconds = 200;
+    private const int ProgressItemInterval = 25;
     private readonly IIndexStore _store;
     private readonly IContentExtractor _extractor;
 
@@ -24,11 +27,33 @@ public sealed class ContentIndexingService
         var items = await _store.GetItemsForContentIndexingAsync(rootId, cancellationToken).ConfigureAwait(false);
         var completed = 0;
         var failed = 0;
+        var progressWatch = Stopwatch.StartNew();
+        var lastReportedProcessed = -ProgressItemInterval;
+
+        void ReportProgress(string currentPath, bool force = false)
+        {
+            if (progress is null)
+            {
+                return;
+            }
+
+            var processed = completed + failed;
+            if (!force &&
+                progressWatch.ElapsedMilliseconds < ProgressIntervalMilliseconds &&
+                processed - lastReportedProcessed < ProgressItemInterval)
+            {
+                return;
+            }
+
+            progressWatch.Restart();
+            lastReportedProcessed = processed;
+            progress.Report(new ContentIndexingProgress(completed, failed, items.Count, currentPath));
+        }
 
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            progress?.Report(new ContentIndexingProgress(completed, failed, items.Count, item.FullPath));
+            ReportProgress(item.FullPath);
 
             if (item.Size.HasValue && item.Size.Value > DefaultMaxFileSize)
             {
@@ -72,7 +97,7 @@ public sealed class ContentIndexingService
             }
         }
 
-        progress?.Report(new ContentIndexingProgress(completed, failed, items.Count, string.Empty));
+        ReportProgress(string.Empty, force: true);
         return new ContentIndexingSummary(completed, failed, items.Count);
     }
 }

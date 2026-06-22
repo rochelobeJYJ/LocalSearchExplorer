@@ -106,7 +106,7 @@ public partial class MainWindow : Window
     private async Task LoadLocationsAsync()
     {
         var previous = _selectedLocation;
-        var statuses = await _store.GetRootIndexStatusesAsync();
+        var statuses = await Task.Run(() => _store.GetRootIndexStatusesAsync());
         RootStatuses.Clear();
         _rootStatusesById.Clear();
         foreach (var status in statuses.Select(item => new RootIndexStatusViewModel(item)))
@@ -444,7 +444,8 @@ public partial class MainWindow : Window
 
         await RunGuardedAsync(async () =>
         {
-            var children = await _store.GetChildFoldersAsync(rootId, node.Path);
+            var nodePath = node.Path;
+            var children = await Task.Run(() => _store.GetChildFoldersAsync(rootId, nodePath));
             node.Children.Clear();
             foreach (var child in children)
             {
@@ -477,11 +478,12 @@ public partial class MainWindow : Window
             Limit = 1000
         };
 
+        var searchText = SearchBox.Text;
         IReadOnlyList<SearchResult> results;
         var searchWatch = Stopwatch.StartNew();
         try
         {
-            results = await _searchService.SearchAsync(SearchBox.Text, options);
+            results = await Task.Run(() => _searchService.SearchAsync(searchText, options));
         }
         catch (QueryParseException ex)
         {
@@ -502,15 +504,12 @@ public partial class MainWindow : Window
             searchWatch.Stop();
         }
 
-        ResultsGrid.ItemsSource = null;
         Results.Clear();
         var sequenceNumber = 1;
         foreach (var result in results)
         {
             Results.Add(new SearchResultViewModel(result, sequenceNumber++));
         }
-        ResultsGrid.ItemsSource = Results;
-
         var knownItemCount = GetKnownCurrentScopeItemCount();
         UpdateSearchHint(knownItemCount);
         ScopeStatusText.Text = knownItemCount.HasValue
@@ -1034,8 +1033,6 @@ public partial class MainWindow : Window
     private void ShowReadyToSearchState()
     {
         Results.Clear();
-        ResultsGrid.ItemsSource = Results;
-
         var knownItemCount = GetKnownCurrentScopeItemCount();
         if (RootStatuses.Count == 0)
         {

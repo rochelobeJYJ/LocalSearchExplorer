@@ -1,7 +1,12 @@
+using System.Diagnostics;
+
 namespace LocalSearch.Core.Indexing;
 
 public sealed class FolderScanner
 {
+    private const int ProgressIntervalMilliseconds = 150;
+    private const int ProgressItemInterval = 250;
+
     public Task<ScanResult> ScanAsync(
         string rootPath,
         IReadOnlyList<string>? exclusions = null,
@@ -26,9 +31,31 @@ public sealed class FolderScanner
         var entries = new List<FileSystemEntrySnapshot>();
         var errors = new List<ScanError>();
         var pendingDirectories = new Stack<string>();
+        var progressWatch = Stopwatch.StartNew();
+        var lastReportedCount = -ProgressItemInterval;
         pendingDirectories.Push(normalizedRoot);
 
         AddSnapshot(new DirectoryInfo(normalizedRoot), entries, errors);
+
+        void ReportProgress(string currentPath, bool force = false)
+        {
+            if (progress is null)
+            {
+                return;
+            }
+
+            var countDelta = entries.Count - lastReportedCount;
+            if (!force &&
+                progressWatch.ElapsedMilliseconds < ProgressIntervalMilliseconds &&
+                countDelta < ProgressItemInterval)
+            {
+                return;
+            }
+
+            progressWatch.Restart();
+            lastReportedCount = entries.Count;
+            progress.Report(new ScanProgress(entries.Count, errors.Count, currentPath));
+        }
 
         while (pendingDirectories.Count > 0)
         {
@@ -54,7 +81,7 @@ public sealed class FolderScanner
                     pendingDirectories.Push(directory.FullName);
                 }
 
-                progress?.Report(new ScanProgress(entries.Count, errors.Count, directory.FullName));
+                ReportProgress(directory.FullName);
             }
 
             foreach (var file in EnumerateFiles(currentDirectory, errors))
@@ -66,10 +93,11 @@ public sealed class FolderScanner
                 }
 
                 AddSnapshot(file, entries, errors);
-                progress?.Report(new ScanProgress(entries.Count, errors.Count, file.FullName));
+                ReportProgress(file.FullName);
             }
         }
 
+        ReportProgress(normalizedRoot, force: true);
         return new ScanResult(normalizedRoot, entries, errors.ToArray());
     }
 
