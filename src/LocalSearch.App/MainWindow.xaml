@@ -70,6 +70,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <TextBox x:Name="SearchBox"
@@ -115,14 +116,22 @@
                             MinWidth="64"
                             Margin="10,0,0,0"
                             Click="SearchButton_Click" />
-                    <Button x:Name="RefreshButton"
+                    <Button x:Name="CancelSearchButton"
+                            AutomationProperties.AutomationId="CancelSearchButton"
                             Grid.Column="6"
+                            Content="중단"
+                            MinWidth="64"
+                            Margin="6,0,0,0"
+                            IsEnabled="False"
+                            Click="CancelSearchButton_Click" />
+                    <Button x:Name="RefreshButton"
+                            Grid.Column="7"
                             Content="스캔"
                             MinWidth="64"
                             Margin="6,0,0,0"
                             Click="RefreshButton_Click" />
                     <Button x:Name="UpdateButton"
-                            Grid.Column="7"
+                            Grid.Column="8"
                             Content="업데이트"
                             MinWidth="78"
                             Margin="6,0,0,0"
@@ -135,6 +144,15 @@
             <StatusBarItem>
                 <TextBlock x:Name="StatusText"
                            AutomationProperties.AutomationId="StatusText" Text="준비됨" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <ProgressBar x:Name="SearchProgressBar"
+                             AutomationProperties.AutomationId="SearchProgressBar"
+                             Width="120"
+                             Height="10"
+                             IsIndeterminate="True"
+                             Visibility="Collapsed" />
             </StatusBarItem>
             <Separator />
             <StatusBarItem>

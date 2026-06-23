@@ -279,6 +279,26 @@ public sealed class IndexingAndSearchTests : IDisposable
         Assert.Contains("하위 검색 위치", exception.Message);
     }
 
+    [Fact]
+    public async Task Search_Observes_CancellationToken()
+    {
+        var root = Path.Combine(_workspace, "cancel-root");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "cancel-target.txt"), "sample");
+
+        var databasePath = Path.Combine(_workspace, "index.db");
+        var store = new SqliteIndexStore(databasePath);
+        var indexing = new IndexingService(store, new FolderScanner());
+        var search = new SearchService(store);
+
+        await indexing.AddOrRefreshRootAsync(root);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            search.SearchAsync("cancel", cancellationToken: cancellation.Token));
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

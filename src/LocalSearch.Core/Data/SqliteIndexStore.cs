@@ -759,6 +759,7 @@ public sealed class SqliteIndexStore : IIndexStore
         var results = new List<SearchResult>();
         foreach (var item in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             contentMap.TryGetValue(item.Id, out var content);
             var evaluation = evaluator!.Evaluate(item, request.Query, content?.NormalizedText);
             if (!evaluation.IsMatch)
@@ -795,6 +796,7 @@ public sealed class SqliteIndexStore : IIndexStore
 
         foreach (var chunk in itemIds.Chunk(400))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             await using var command = connection.CreateCommand();
             var parameters = new List<string>(chunk.Length);
             for (var i = 0; i < chunk.Length; i++)

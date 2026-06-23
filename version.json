@@ -1,7 +1,7 @@
 {
   "appId": "localsearchexplorer",
-  "version": "0.4.4",
-  "releaseTag": "v0.4.4",
+  "version": "0.4.5",
+  "releaseTag": "v0.4.5",
   "githubRepo": "rochelobeJYJ/LocalSearchExplorer",
   "installerBaseName": "LocalSearchExplorer-Setup"
 }

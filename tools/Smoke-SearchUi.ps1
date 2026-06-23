@@ -48,10 +48,16 @@ try {
 
     $searchBox = Find-ByAutomationId 'SearchBox'
     $searchButton = Find-ByAutomationId 'SearchButton'
+    $cancelButton = Find-ByAutomationId 'CancelSearchButton'
+    $progressBar = Find-ByAutomationId 'SearchProgressBar'
+    $statusText = Find-ByAutomationId 'StatusText'
     $grid = Find-ByAutomationId 'ResultsGrid'
     if (-not $searchBox) { throw 'SearchBox not found.' }
     if (-not $searchButton) { throw 'SearchButton not found.' }
+    if (-not $cancelButton) { throw 'CancelSearchButton not found.' }
+    if (-not $statusText) { throw 'StatusText not found.' }
     if (-not $grid) { throw 'ResultsGrid not found.' }
+    if ($cancelButton.Current.IsEnabled) { throw 'CancelSearchButton should be disabled before search.' }
 
     $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline -and -not $searchButton.Current.IsEnabled) {
@@ -65,6 +71,17 @@ try {
     $valuePattern.SetValue($searchTerm)
     $invokePattern = $searchButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $invokePattern.Invoke()
+
+    $feedbackObserved = $false
+    $feedbackDeadline = [DateTime]::UtcNow.AddSeconds(2)
+    while ([DateTime]::UtcNow -lt $feedbackDeadline) {
+        $progressBar = Find-ByAutomationId 'SearchProgressBar'
+        if ($cancelButton.Current.IsEnabled) {
+            $feedbackObserved = $true
+            break
+        }
+        Start-Sleep -Milliseconds 50
+    }
 
     $found = $false
     $deadline = [DateTime]::UtcNow.AddSeconds($SearchTimeoutSeconds)
@@ -88,6 +105,9 @@ try {
         root = $root
         searched = $searchTerm
         expectedFile = $fileName
+        feedbackObserved = $feedbackObserved
+        cancelButtonExists = $null -ne $cancelButton
+        progressBarObserved = $null -ne $progressBar
     }
     $result | ConvertTo-Json -Compress
     if (-not $found) {

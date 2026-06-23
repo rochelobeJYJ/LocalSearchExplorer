@@ -34,7 +34,9 @@ public partial class MainWindow : Window
     private readonly GitHubReleaseUpdateService _updateService;
     private readonly Dictionary<long, RootIndexStatusViewModel> _rootStatusesById = [];
     private LocationNodeViewModel? _selectedLocation;
+    private CancellationTokenSource? _searchCancellation;
     private bool _isBusy;
+    private bool _isSearchRunning;
 
     public MainWindow()
     {
@@ -322,6 +324,10 @@ public partial class MainWindow : Window
     {
         await RunSearchAsync();
     }
+    private void CancelSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        RequestSearchCancellation();
+    }
 
     private async void SearchBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
@@ -462,10 +468,51 @@ public partial class MainWindow : Window
 
     private async Task RunSearchAsync()
     {
-        await RunGuardedAsync(SearchCoreAsync);
+        if (_isSearchRunning)
+        {
+            SetStatus("검색 중입니다. 중단하려면 '중단' 버튼을 누르세요.");
+            return;
+        }
+
+        if (_isBusy)
+        {
+            SetStatus("다른 작업이 진행 중입니다. 완료 후 다시 검색하세요.");
+            return;
+        }
+
+        using var searchCancellation = new CancellationTokenSource();
+        _searchCancellation = searchCancellation;
+
+        try
+        {
+            _isBusy = true;
+            _isSearchRunning = true;
+            ToggleControls(false);
+            SetSearchRunningState(true);
+            await SearchCoreAsync(searchCancellation.Token, showStartFeedback: true);
+        }
+        catch (OperationCanceledException) when (searchCancellation.IsCancellationRequested)
+        {
+            SetStatus($"검색 중단됨 | 기준: {GetCurrentScopeLabel()}");
+            ShowSearchHint("검색이 중단되었습니다. 검색어 또는 검색 범위를 조정한 뒤 다시 실행하세요.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("오류 발생");
+            System.Windows.MessageBox.Show(this, ex.Message, "Local Search Explorer", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _isSearchRunning = false;
+            _searchCancellation = null;
+            SetSearchRunningState(false);
+            _isBusy = false;
+            ToggleControls(true);
+            UpdateScopeTexts();
+        }
     }
 
-    private async Task SearchCoreAsync()
+    private async Task SearchCoreAsync(CancellationToken cancellationToken = default, bool showStartFeedback = false)
     {
         var scopePath = GetCurrentScopePath();
         var includeSubfolders = IncludeSubfoldersBox.IsChecked == true;
@@ -480,11 +527,26 @@ public partial class MainWindow : Window
         };
 
         var searchText = SearchBox.Text;
+        var scopeLabel = GetCurrentScopeLabel();
+        var scopedItemCount = GetKnownCurrentScopeItemCount();
+        if (showStartFeedback)
+        {
+            SetStatus(scopedItemCount.HasValue
+                ? $"검색 중... 기준 {scopedItemCount.Value:N0}개 | {scopeLabel}"
+                : $"검색 중... 기준: {scopeLabel}");
+            ScopeStatusText.Text = scopedItemCount.HasValue
+                ? $"검색 중 | 기준 항목 {scopedItemCount.Value:N0}개 | {(includeSubfolders ? "하위 폴더 포함" : "현재 폴더만")}"
+                : $"검색 중 | 기준: {scopeLabel} | {(includeSubfolders ? "하위 폴더 포함" : "현재 폴더만")}";
+            ShowSearchHint("검색 중입니다. 검색 범위가 크면 시간이 걸릴 수 있습니다. 중단 버튼으로 멈출 수 있습니다.");
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
         IReadOnlyList<SearchResult> results;
         var searchWatch = Stopwatch.StartNew();
         try
         {
-            results = await Task.Run(() => _searchService.SearchAsync(searchText, options));
+            cancellationToken.ThrowIfCancellationRequested();
+            results = await Task.Run(() => _searchService.SearchAsync(searchText, options, cancellationToken), cancellationToken);
         }
         catch (QueryParseException ex)
         {
@@ -504,6 +566,8 @@ public partial class MainWindow : Window
         {
             searchWatch.Stop();
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         Results.Clear();
         var sequenceNumber = 1;
@@ -651,8 +715,16 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Escape)
         {
-            SearchBox.Clear();
-            await RunSearchAsync();
+            if (_isSearchRunning)
+            {
+                RequestSearchCancellation();
+            }
+            else
+            {
+                SearchBox.Clear();
+                await RunSearchAsync();
+            }
+
             e.Handled = true;
             return;
         }
@@ -1134,6 +1206,26 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RequestSearchCancellation()
+    {
+        if (!_isSearchRunning || _searchCancellation is null || _searchCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        _searchCancellation.Cancel();
+        CancelSearchButton.IsEnabled = false;
+        SearchButton.Content = "중단 중";
+        SetStatus("검색 중단 요청 중...");
+    }
+
+    private void SetSearchRunningState(bool isRunning)
+    {
+        SearchButton.Content = isRunning ? "검색 중" : "검색";
+        CancelSearchButton.IsEnabled = isRunning;
+        SearchProgressBar.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
+        Mouse.OverrideCursor = isRunning ? System.Windows.Input.Cursors.AppStarting : null;
+    }
     private void ToggleControls(bool enabled)
     {
         AddFolderButton.IsEnabled = enabled;
@@ -1142,7 +1234,8 @@ public partial class MainWindow : Window
         IndexContentButton.IsEnabled = enabled && RootStatuses.Count > 0;
         LocationTree.IsEnabled = enabled;
         RemoveRootButton.IsEnabled = enabled && _selectedLocation?.IsRoot == true;
-        SearchButton.IsEnabled = enabled;
+        SearchButton.IsEnabled = enabled && !_isSearchRunning;
+        CancelSearchButton.IsEnabled = _isSearchRunning;
         RefreshButton.IsEnabled = enabled;
         UpdateButton.IsEnabled = enabled;
     }
