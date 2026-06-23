@@ -50,6 +50,7 @@ public partial class MainWindow : Window
         LocationNodes = new ObservableCollection<LocationNodeViewModel>();
         RootStatuses = new ObservableCollection<RootIndexStatusViewModel>();
         Results = new ObservableCollection<SearchResultViewModel>();
+        ResultsGrid.ItemsSource = Results;
         DataContext = this;
         DatabaseText.Text = databasePath;
 
@@ -510,6 +511,8 @@ public partial class MainWindow : Window
         {
             Results.Add(new SearchResultViewModel(result, sequenceNumber++));
         }
+        ResultsGrid.ItemsSource = Results;
+
         var knownItemCount = GetKnownCurrentScopeItemCount();
         UpdateSearchHint(knownItemCount);
         ScopeStatusText.Text = knownItemCount.HasValue

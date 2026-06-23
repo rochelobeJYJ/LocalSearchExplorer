@@ -73,6 +73,7 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBox x:Name="SearchBox"
+                             AutomationProperties.AutomationId="SearchBox"
                              Grid.Column="0"
                              Height="30"
                              FontSize="14"
@@ -108,6 +109,7 @@
                               Content="내용 검색"
                               Checked="ContentSearchBox_Checked" />
                     <Button x:Name="SearchButton"
+                            AutomationProperties.AutomationId="SearchButton"
                             Grid.Column="5"
                             Content="검색"
                             MinWidth="64"
@@ -131,7 +133,8 @@
 
         <StatusBar DockPanel.Dock="Bottom" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0">
             <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="준비됨" />
+                <TextBlock x:Name="StatusText"
+                           AutomationProperties.AutomationId="StatusText" Text="준비됨" />
             </StatusBarItem>
             <Separator />
             <StatusBarItem>
@@ -279,6 +282,7 @@
                 </Border>
 
                 <DataGrid x:Name="ResultsGrid"
+                          AutomationProperties.AutomationId="ResultsGrid"
                           ItemsSource="{Binding Results}"
                           AutoGenerateColumns="False"
                           CanUserAddRows="False"
