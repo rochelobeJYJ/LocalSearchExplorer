@@ -57,9 +57,9 @@ public sealed class IndexingAndSearchTests : IDisposable
     }
 
     [Fact]
-    public async Task Search_Falls_Back_To_Like_When_Metadata_Fts_Is_Not_Backfilled()
+    public async Task Initialize_Backfills_Metadata_Fts_When_Stale_So_Search_Still_Works()
     {
-        var root = Path.Combine(_workspace, "fts-fallback-root");
+        var root = Path.Combine(_workspace, "fts-backfill-root");
         Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(Path.Combine(root, "빠른검색자료.txt"), "sample");
 
@@ -68,6 +68,8 @@ public sealed class IndexingAndSearchTests : IDisposable
         var indexing = new IndexingService(store, new FolderScanner());
         await indexing.AddOrRefreshRootAsync(root);
 
+        // Simulate a database upgraded from a build that predates item_fts: the
+        // table exists but is empty / out of sync with items.
         await ExecuteNonQueryAsync(databasePath, "DELETE FROM item_fts;");
         SqliteConnection.ClearAllPools();
 
@@ -76,6 +78,12 @@ public sealed class IndexingAndSearchTests : IDisposable
         var search = new SearchService(newStore);
         var results = await search.SearchAsync("빠른검색자료");
 
+        var ftsCount = await ReadScalarAsync(databasePath, "SELECT COUNT(*) FROM item_fts;");
+        var itemCount = await ReadScalarAsync(databasePath, "SELECT COUNT(*) FROM items WHERE is_missing = 0;");
+
+        // Initialize must have rebuilt the FTS index in sync with items, so the
+        // FTS-only search prefilter finds the file instead of silently missing it.
+        Assert.Equal(itemCount, ftsCount);
         Assert.Single(results);
         Assert.Equal("빠른검색자료.txt", results[0].Item.Name);
     }

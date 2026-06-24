@@ -575,7 +575,6 @@ public partial class MainWindow : Window
         {
             Results.Add(new SearchResultViewModel(result, sequenceNumber++));
         }
-        ResultsGrid.ItemsSource = Results;
 
         var knownItemCount = GetKnownCurrentScopeItemCount();
         UpdateSearchHint(knownItemCount);

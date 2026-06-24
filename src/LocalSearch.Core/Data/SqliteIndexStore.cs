@@ -56,6 +56,10 @@ public sealed class SqliteIndexStore : IIndexStore
             }
 
             _ftsAvailable = await TryEnsureFtsTablesAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (_ftsAvailable)
+            {
+                await BackfillItemFtsIfStaleAsync(connection, cancellationToken).ConfigureAwait(false);
+            }
 
             _initialized = true;
         }
@@ -318,11 +322,12 @@ public sealed class SqliteIndexStore : IIndexStore
             ? DateTimeOffset.UtcNow
             : items.Min(item => item.LastSeenAt);
 
-        foreach (var item in items)
-        {
-            await using var insertCommand = connection.CreateCommand();
-            insertCommand.Transaction = (SqliteTransaction)transaction;
-            insertCommand.CommandText = """
+        // Build the upsert command once and reuse the prepared statement for every
+        // row. The previous code created a fresh command (re-parsing this large SQL)
+        // for each of potentially 100k+ items, which dominated re-index time.
+        await using var insertCommand = connection.CreateCommand();
+        insertCommand.Transaction = (SqliteTransaction)transaction;
+        insertCommand.CommandText = """
                 INSERT INTO items (
                     root_id,
                     full_path,
@@ -395,6 +400,10 @@ public sealed class SqliteIndexStore : IIndexStore
                     is_missing = 0;
                 """;
 
+        foreach (var item in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            insertCommand.Parameters.Clear();
             AddItemParameters(insertCommand, item);
             await insertCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -417,16 +426,9 @@ public sealed class SqliteIndexStore : IIndexStore
         {
             cleanupMissingCommand.Transaction = (SqliteTransaction)transaction;
             var cleanupBefore = DateTimeOffset.UtcNow - MissingItemRetention;
-            if (_ftsAvailable)
-            {
-                await DeleteFtsForMissingItemsAsync(
-                    connection,
-                    (SqliteTransaction)transaction,
-                    rootId,
-                    cleanupBefore,
-                    cancellationToken).ConfigureAwait(false);
-            }
-
+            // item_fts is fully rebuilt from the surviving (is_missing = 0) rows by
+            // RebuildItemFtsForRootAsync below, so deleted and missing rows drop out
+            // of the index automatically — no separate per-row FTS cleanup needed.
             cleanupMissingCommand.CommandText = """
                 DELETE FROM items
                 WHERE root_id = $root_id
@@ -714,9 +716,13 @@ public sealed class SqliteIndexStore : IIndexStore
         AppendQueryPrefilter(sql, command, request);
 
         sql.AppendLine();
-        sql.AppendLine("ORDER BY modified_at DESC, name COLLATE NOCASE ASC");
         if (request.Query is EmptyNode)
         {
+            // Browse mode: SQL provides both ordering and a hard cap. For real
+            // queries the order is recomputed by relevance in C#, so ordering in
+            // SQL here would only add a throwaway temp-B-tree sort over every
+            // candidate row.
+            sql.AppendLine("ORDER BY modified_at DESC, name COLLATE NOCASE ASC");
             sql.AppendLine("LIMIT $limit");
             command.Parameters.AddWithValue("$limit", Math.Max(1, request.Limit));
         }
@@ -874,13 +880,17 @@ public sealed class SqliteIndexStore : IIndexStore
 
     private SqliteConnection OpenConnection()
     {
+        // Private cache (the default) is intentional: shared cache forces
+        // process-wide table locks that serialize readers and interact poorly
+        // with WAL. Each operation here uses its own short-lived connection,
+        // so private cache + pooling is both faster and safer.
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = _databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
             Pooling = true,
-            ForeignKeys = true
+            ForeignKeys = true,
+            DefaultTimeout = 30
         };
 
         return new SqliteConnection(builder.ToString());
@@ -942,6 +952,62 @@ public sealed class SqliteIndexStore : IIndexStore
         }
     }
 
+    private static async Task BackfillItemFtsIfStaleAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        // Keep item_fts mirroring items(is_missing = 0). This covers databases
+        // created before the FTS index existed (or otherwise out of sync) so the
+        // FTS-only search prefilter can never silently miss rows. It is a one-time
+        // O(N) rebuild only when the row counts differ; the steady state is two
+        // cheap COUNT(*) reads and an early return.
+        var itemCount = await ExecuteScalarLongAsync(
+            connection,
+            "SELECT COUNT(*) FROM items WHERE is_missing = 0;",
+            cancellationToken).ConfigureAwait(false);
+        var ftsCount = await ExecuteScalarLongAsync(
+            connection,
+            "SELECT COUNT(*) FROM item_fts;",
+            cancellationToken).ConfigureAwait(false);
+        if (itemCount == ftsCount)
+        {
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await ExecuteNonQueryAsync(connection, (SqliteTransaction)transaction, "DELETE FROM item_fts;", null, cancellationToken).ConfigureAwait(false);
+
+        await using (var insertCommand = connection.CreateCommand())
+        {
+            insertCommand.Transaction = (SqliteTransaction)transaction;
+            insertCommand.CommandText = """
+                INSERT INTO item_fts(rowid, item_id, name, name_no_space, path, path_no_space)
+                SELECT id,
+                       id,
+                       normalized_name,
+                       normalized_name_no_space,
+                       normalized_path,
+                       normalized_path_no_space
+                FROM items
+                WHERE is_missing = 0;
+                """;
+            await insertCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<long> ExecuteScalarLongAsync(
+        SqliteConnection connection,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is null or DBNull ? 0 : Convert.ToInt64(value, CultureInfo.InvariantCulture);
+    }
+
     private static async Task TryDropLegacyContentFtsAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -992,30 +1058,6 @@ public sealed class SqliteIndexStore : IIndexStore
             """;
         insertCommand.Parameters.AddWithValue("$root_id", rootId);
         await insertCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task DeleteFtsForMissingItemsAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        long rootId,
-        DateTimeOffset cleanupBefore,
-        CancellationToken cancellationToken)
-    {
-        await using var deleteItemFts = connection.CreateCommand();
-        deleteItemFts.Transaction = transaction;
-        deleteItemFts.CommandText = """
-            DELETE FROM item_fts
-            WHERE item_id IN (
-                SELECT id
-                FROM items
-                WHERE root_id = $root_id
-                  AND is_missing = 1
-                  AND last_seen_at < $cleanup_before
-            );
-            """;
-        deleteItemFts.Parameters.AddWithValue("$root_id", rootId);
-        deleteItemFts.Parameters.AddWithValue("$cleanup_before", ToSql(cleanupBefore));
-        await deleteItemFts.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<IndexRoot> GetRootByPathAsync(
@@ -1312,45 +1354,16 @@ public sealed class SqliteIndexStore : IIndexStore
         IReadOnlyList<string> ftsNoSpaceColumns,
         out string filter)
     {
-        if (useFts && CanUseFts(value))
+        // For terms of 3+ characters the trigram FTS index is an exact superset
+        // of a LIKE '%term%' substring scan, so it is used on its own. The former
+        // "FTS OR (NOT EXISTS in fts AND LIKE)" fallback turned every search into
+        // an O(N^2) correlated scan of the (UNINDEXED) FTS table — the root cause
+        // of the search hang. FTS completeness is guaranteed by the backfill in
+        // InitializeAsync and by RebuildItemFtsForRootAsync on every re-index.
+        if (useFts && CanUseFts(value) &&
+            TryBuildFtsPrefilter(command, "item_fts", "item_id", value, ignoreWhitespace, ftsColumns, ftsNoSpaceColumns, out filter))
         {
-            var hasFtsFilter = TryBuildFtsPrefilter(
-                command,
-                "item_fts",
-                "item_id",
-                value,
-                ignoreWhitespace,
-                ftsColumns,
-                ftsNoSpaceColumns,
-                out var ftsFilter);
-            var hasLikeFilter = TryBuildLikeTextPrefilter(
-                command,
-                value,
-                ignoreWhitespace,
-                columns,
-                noSpaceColumns,
-                out var likeFilter);
-
-            if (hasFtsFilter && hasLikeFilter)
-            {
-                filter = $"({ftsFilter} OR (NOT EXISTS (SELECT 1 FROM item_fts missing_fts WHERE missing_fts.item_id = items.id) AND {likeFilter}))";
-                return true;
-            }
-
-            if (hasFtsFilter)
-            {
-                filter = ftsFilter;
-                return true;
-            }
-
-            if (hasLikeFilter)
-            {
-                filter = likeFilter;
-                return true;
-            }
-
-            filter = string.Empty;
-            return false;
+            return true;
         }
 
         return TryBuildLikeTextPrefilter(command, value, ignoreWhitespace, columns, noSpaceColumns, out filter);
